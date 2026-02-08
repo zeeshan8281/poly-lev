@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/hooks/useTheme";
-import PrivyProviderWrapper from "@/components/PrivyProviderWrapper";
+// import PrivyProviderWrapper from "@/components/PrivyProviderWrapper";
 
 export const metadata: Metadata = {
   title: "Polymarket Leverage Simulator",
@@ -36,11 +36,11 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="antialiased">
-        <PrivyProviderWrapper>
-          <ThemeProvider>
-            {children}
-          </ThemeProvider>
-        </PrivyProviderWrapper>
+        {/* <PrivyProviderWrapper> */}
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
+        {/* </PrivyProviderWrapper> */}
       </body>
     </html>
   );
