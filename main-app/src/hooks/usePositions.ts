@@ -170,18 +170,20 @@ export function usePositions() {
         }
     }, [storageKey]);
 
-    // WebSocket connection
+    // Handle WebSocket and PING/PONG
     useEffect(() => {
         isUnmountedRef.current = false;
+        let pingInterval: NodeJS.Timeout | null = null;
 
         const connect = () => {
             if (isUnmountedRef.current) return;
 
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                wsRef.current.close();
+            if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+                return; // Already collecting or connected
             }
 
-            const wsUrl = `ws://${window.location.host}/ws`;
+            // DIRECT CONNECTION TO POLYMARKET
+            const wsUrl = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
@@ -190,43 +192,53 @@ export function usePositions() {
                     ws.close();
                     return;
                 }
-                console.log('[WS] Connected to Polymarket');
+                console.log('[WS] Connected directly to Polymarket CLOB');
                 setWsStatus('connected');
 
-                // Subscribe to existing positions from localStorage
+                // START PING INTERVAL (Keep-Alive)
+                // Polymarket requires regular activity or it disconnects
+                pingInterval = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send('PING');
+                    }
+                }, 10000); // Every 10 seconds
+
+                // Resubscribe to existing tokens if any
                 const savedPositions = localStorage.getItem(storageKey);
                 if (savedPositions) {
                     try {
                         const parsed = JSON.parse(savedPositions) as Position[];
-                        const openPositionTokens = parsed
+                        const tokensToSub = parsed
                             .filter(p => p.status === 'open' && p.tokenId)
                             .map(p => p.tokenId as string);
 
-                        if (openPositionTokens.length > 0) {
-                            openPositionTokens.forEach(id => subscribedTokensRef.current.add(id));
-                            console.log('[WS] Auto-subscribing to position tokens:', openPositionTokens);
+                        if (tokensToSub.length > 0) {
+                            tokensToSub.forEach(id => subscribedTokensRef.current.add(id));
                         }
-                    } catch (e) {
-                        console.error('Failed to parse saved positions:', e);
-                    }
+                    } catch (e) { console.error(e); }
                 }
 
-                // Subscribe to all tracked tokens
                 if (subscribedTokensRef.current.size > 0) {
                     const msg = {
                         type: 'market',
                         assets_ids: Array.from(subscribedTokensRef.current)
                     };
                     ws.send(JSON.stringify(msg));
+                    console.log('[WS] Resubscribed to:', subscribedTokensRef.current.size, 'assets');
                 }
             };
 
             ws.onmessage = (event) => {
+                const dataStr = event.data.toString();
+
+                // Handle PONG responses (ignore them)
+                if (dataStr === 'PONG') return;
+
                 try {
-                    const data: WSMessage = JSON.parse(event.data);
+                    const data: WSMessage = JSON.parse(dataStr);
                     handleWebSocketMessage(data);
                 } catch (e) {
-                    // Non-JSON message (like PONG)
+                    // console.error('[WS Parse Error]', e); 
                 }
             };
 
@@ -234,14 +246,17 @@ export function usePositions() {
                 if (isUnmountedRef.current) return;
                 console.log('[WS] Disconnected');
                 setWsStatus('disconnected');
+                if (pingInterval) clearInterval(pingInterval);
+
                 if (reconnectTimeoutRef.current) {
                     clearTimeout(reconnectTimeoutRef.current);
                 }
-                reconnectTimeoutRef.current = setTimeout(connect, 5000);
+                reconnectTimeoutRef.current = setTimeout(connect, 3000); // Retry sooner
             };
 
-            ws.onerror = () => {
+            ws.onerror = (err) => {
                 if (isUnmountedRef.current) return;
+                console.error('[WS Error]', err);
                 setWsStatus('disconnected');
             };
         };
@@ -250,9 +265,9 @@ export function usePositions() {
 
         return () => {
             isUnmountedRef.current = true;
+            if (pingInterval) clearInterval(pingInterval);
             if (reconnectTimeoutRef.current) {
                 clearTimeout(reconnectTimeoutRef.current);
-                reconnectTimeoutRef.current = null;
             }
             if (wsRef.current) {
                 wsRef.current.close();

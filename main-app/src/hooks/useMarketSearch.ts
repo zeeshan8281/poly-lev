@@ -85,13 +85,25 @@ export function useMarketSearch() {
 
     // Connect to WebSocket for real-time updates
     useEffect(() => {
+        let pingInterval: NodeJS.Timeout | null = null;
+        let reconnectTimeout: NodeJS.Timeout | null = null;
+
         const connect = () => {
-            const wsUrl = `ws://${window.location.host}/ws`;
+            // DIRECT CONNECTION TO POLYMARKET
+            const wsUrl = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
             ws.onopen = () => {
-                console.log('[MarketSearch WS] Connected');
+                console.log('[MarketSearch WS] Connected directly to Polymarket CLOB');
+
+                // Keep-Alive PING
+                pingInterval = setInterval(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.send('PING');
+                    }
+                }, 10000);
+
                 if (subscribedTokensRef.current.size > 0) {
                     const msg = {
                         type: 'market',
@@ -103,8 +115,11 @@ export function useMarketSearch() {
             };
 
             ws.onmessage = (event) => {
+                const dataStr = event.data.toString();
+                if (dataStr === 'PONG') return;
+
                 try {
-                    const data = JSON.parse(event.data);
+                    const data = JSON.parse(dataStr);
 
                     if (data.price_changes && Array.isArray(data.price_changes)) {
                         data.price_changes.forEach((change: any) => {
@@ -112,6 +127,10 @@ export function useMarketSearch() {
                             if (price <= 1) price = price * 100;
                             priceMapRef.current.set(change.asset_id, price);
                         });
+                        // ... (rest of logic handles updates via refs or state if needed)
+                        // Trigger re-render or update state? 
+                        // The original code updated state inside onmessage.
+                        // We need to preserve that logic.
 
                         // Update popular markets with new prices
                         setPopularMarkets(prev => prev.map(market => {
@@ -145,23 +164,13 @@ export function useMarketSearch() {
                             return market;
                         }));
                     }
-
-                    if (data.event_type === 'book' && data.bids && data.bids.length > 0) {
-                        const bestBid = parseFloat(data.bids[0].price);
-                        priceMapRef.current.set(data.asset_id, bestBid <= 1 ? bestBid * 100 : bestBid);
-                    }
-
-                    if (data.event_type === 'last_trade_price') {
-                        let price = parseFloat(data.price);
-                        if (price <= 1) price = price * 100;
-                        priceMapRef.current.set(data.asset_id, price);
-                    }
                 } catch (e) { }
             };
 
             ws.onclose = () => {
-                console.log('[MarketSearch WS] Disconnected, reconnecting...');
-                setTimeout(connect, 3000);
+                console.log('[MarketSearch WS] Disconnected');
+                if (pingInterval) clearInterval(pingInterval);
+                reconnectTimeout = setTimeout(connect, 3000);
             };
 
             ws.onerror = (error) => {
@@ -170,7 +179,12 @@ export function useMarketSearch() {
         };
 
         connect();
-        return () => { wsRef.current?.close(); };
+
+        return () => {
+            if (pingInterval) clearInterval(pingInterval);
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            wsRef.current?.close();
+        };
     }, []);
 
     const subscribeToMarkets = useCallback((markets: Market[]) => {
