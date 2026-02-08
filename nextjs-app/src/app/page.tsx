@@ -1,419 +1,264 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Header } from '@/components/Header';
-import { PositionList } from '@/components/PositionList';
-import { PositionForm } from '@/components/PositionForm';
-import { WalletAnalysis } from '@/components/WalletAnalysis';
-import { usePositions } from '@/hooks/usePositions';
-import { useMarketSearch } from '@/hooks/useMarketSearch';
-import { useWallet, Trade } from '@/hooks/useWallet';
-import { Market, Position } from '@/types';
-import {
-  Compass,
-  Wallet,
-  DollarSign,
-  TrendingUp,
-  Activity,
-  Search,
-  Sparkles,
-  LayoutGrid,
-  PieChart
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Zap } from 'lucide-react';
 
-type Tab = 'discover' | 'mybets' | 'wallet';
+export default function WaitlistPage() {
+    const searchParams = useSearchParams();
+    const refParam = searchParams.get('ref');
 
-export default function Home() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+    // ... state ...
+    const [formData, setFormData] = useState({
+        name: '',
+        email: '',
+        telegram: '',
+        twitter: '',
+        referredBy: refParam || ''
+    });
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isSuccess, setIsSuccess] = useState(false);
+    const [error, setError] = useState('');
+    const [referralCode, setReferralCode] = useState('');
+    const [position, setPosition] = useState<number | null>(null);
+    const [copied, setCopied] = useState(false);
 
-  // State initialization from URL params
-  const initialTab = (searchParams.get('tab') as Tab) || 'discover';
-  const initialQuery = searchParams.get('q') || '';
+    useEffect(() => {
+        if (refParam) {
+            setFormData(prev => ({ ...prev, referredBy: refParam }));
+        }
+    }, [refParam]);
 
-  const [activeTab, setActiveTabState] = useState<Tab>(initialTab);
-  const [searchQuery, setSearchQuery] = useState(initialQuery);
-  const [selectedMarket, setSelectedMarket] = useState<Market | null>(null);
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsSubmitting(true);
+        setError('');
 
-  const {
-    positions,
-    wsStatus,
-    openPosition,
-    closePosition,
-    updateOdds,
-    calculatePnL,
-    getPortfolioStats,
-    subscribeToMarket,
-    isLoaded: positionsLoaded
-  } = usePositions();
+        try {
+            const response = await fetch('/api/waitlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData)
+            });
 
-  const {
-    results,
-    popularMarkets,
-    isLoading,
-    isLoadingPopular,
-    error,
-    searchMarkets,
-    clearResults
-  } = useMarketSearch();
+            const data = await response.json();
 
-  const {
-    balance,
-    trades,
-    isLoaded: walletLoaded,
-    recordTrade,
-    deductCollateral,
-    settlePosition,
-    getStats,
-    resetWallet,
-    startingBalance
-  } = useWallet();
+            if (!response.ok) {
+                if (response.status === 409) {
+                    setError('You\'re already on the list! Your code: ' + data.referralCode);
+                    setReferralCode(data.referralCode);
+                } else {
+                    setError(data.error || 'Something went wrong');
+                }
+                return;
+            }
 
-  const walletStats = useMemo(() => getStats(), [getStats, trades]);
-
-  // Sync state with URL
-  const setActiveTab = (tab: Tab) => {
-    setActiveTabState(tab);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', tab);
-    router.replace(`?${params.toString()}`, { scroll: false });
-  };
-
-  // Perform search if query exists in URL on mount
-  useEffect(() => {
-    if (initialQuery && results.length === 0 && !isLoading) {
-      searchMarkets(initialQuery);
-    }
-  }, [initialQuery]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      searchMarkets(searchQuery);
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('q', searchQuery);
-      router.replace(`?${params.toString()}`, { scroll: false });
-    }
-  };
-
-  const handleSelectMarket = (market: Market) => {
-    setSelectedMarket(market);
-    // Don't clear results here so user doesn't lose context if they cancel
-    if (market.tokenIds.length > 0) {
-      subscribeToMarket(market.tokenIds);
-    }
-  };
-
-  const handleOpenPosition = (prediction: 'yes' | 'no', size: number, leverage: number, entryOdds: number) => {
-    if (!selectedMarket) return;
-
-    const collateral = size / leverage;
-
-    if (collateral > balance) {
-      alert(`Insufficient balance. You need $${collateral.toFixed(2)} but only have $${balance.toFixed(2)}`);
-      return;
-    }
-
-    const success = deductCollateral(collateral);
-    if (!success) {
-      alert('Failed to deduct collateral');
-      return;
-    }
-
-    openPosition(
-      {
-        id: selectedMarket.id,
-        title: selectedMarket.title,
-        question: selectedMarket.question,
-        tokenIds: selectedMarket.tokenIds
-      },
-      prediction,
-      size,
-      leverage,
-      entryOdds
-    );
-    setSelectedMarket(null);
-    setActiveTab('mybets');
-  };
-
-  const handleClosePosition = (positionId: number) => {
-    const position = positions.find(p => p.id === positionId);
-    if (!position) return;
-
-    const pnl = calculatePnL(position);
-    const pnlPercent = (pnl / position.collateral) * 100;
-
-    settlePosition(position.collateral, pnl);
-
-    const trade: Omit<Trade, 'id'> = {
-      marketId: position.marketId,
-      marketTitle: position.title,
-      prediction: position.prediction,
-      entryPrice: position.entryOdds,
-      exitPrice: position.currentOdds || position.entryOdds,
-      positionSize: position.positionSize,
-      leverage: position.leverage,
-      collateral: position.collateral,
-      pnl,
-      pnlPercent,
-      openTime: position.openTime,
-      closeTime: new Date().toISOString(),
-      outcome: pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'win'
+            setIsSuccess(true);
+            setReferralCode(data.referralCode);
+            setPosition(data.position);
+        } catch (err) {
+            setError('Failed to connect. Please try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
-    recordTrade(trade);
-    closePosition(positionId);
-  };
 
-  const stats = getPortfolioStats();
-  const marketsToShow = results.length > 0 ? results : popularMarkets;
-  const activePositions = positions.filter(p => p.status === 'open');
+    const copyReferralLink = () => {
+        const link = `${window.location.origin}/waitlist?ref=${referralCode}`;
+        navigator.clipboard.writeText(link);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
-  if (!positionsLoaded || !walletLoaded) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="loader"></div>
-          <p className="text-muted">Loading your leverage terminal...</p>
+        <div className="app-container">
+            <header className="header">
+                <div className="header-inner">
+                    <div className="header-pill">
+                        <div className="logo">
+                            <div className="logo-icon">
+                                <Zap size={16} />
+                            </div>
+                            <span>Polymarket <span style={{ fontWeight: 400 }}>Leverage</span></span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <main className="main-content" style={{ paddingTop: '2rem' }}>
+                {/* Hero Section - Matching main app */}
+                <div className="hero-section">
+                    <h1 className="hero-title">
+                        Polymarket <span className="hero-title-accent">Leverage</span>
+                    </h1>
+                </div>
+
+                {/* Signup Form - Using existing card styles */}
+                <div style={{ maxWidth: '480px', margin: '1rem auto 0' }}>
+                    <div className="card">
+                        <div className="card-content">
+                            {!isSuccess ? (
+                                <>
+                                    <h2 style={{ color: 'var(--text-primary)', textAlign: 'center', marginBottom: '0.5rem', fontSize: '1.5rem' }}>
+                                        Join the Waitlist
+                                    </h2>
+                                    <p style={{ color: 'var(--text-secondary)', textAlign: 'center', marginBottom: '1.5rem' }}>
+                                        Get early access when we launch
+                                    </p>
+
+                                    <form onSubmit={handleSubmit}>
+                                        <div className="form-group">
+                                            <input
+                                                type="text"
+                                                placeholder="Your Name *"
+                                                value={formData.name}
+                                                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                                                required
+                                                className="input"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <input
+                                                type="email"
+                                                placeholder="Email Address *"
+                                                value={formData.email}
+                                                onChange={e => setFormData({ ...formData, email: e.target.value })}
+                                                required
+                                                className="input"
+                                            />
+                                        </div>
+                                        <div className="form-row">
+                                            <div className="form-group" style={{ flex: 1 }}>
+                                                <input
+                                                    type="text"
+                                                    placeholder="@telegram"
+                                                    value={formData.telegram}
+                                                    onChange={e => setFormData({ ...formData, telegram: e.target.value })}
+                                                    className="input"
+                                                />
+                                            </div>
+                                            <div className="form-group" style={{ flex: 1 }}>
+                                                <input
+                                                    type="text"
+                                                    placeholder="@twitter"
+                                                    value={formData.twitter}
+                                                    onChange={e => setFormData({ ...formData, twitter: e.target.value })}
+                                                    className="input"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="form-group">
+                                            <input
+                                                type="text"
+                                                placeholder="Referral Code (optional)"
+                                                value={formData.referredBy}
+                                                onChange={e => setFormData({ ...formData, referredBy: e.target.value.toUpperCase() })}
+                                                className="input"
+                                                style={{ textTransform: 'uppercase' }}
+                                            />
+                                        </div>
+
+                                        {error && (
+                                            <div style={{
+                                                padding: '0.75rem',
+                                                borderRadius: '8px',
+                                                background: 'rgba(239, 68, 68, 0.1)',
+                                                border: '1px solid rgba(239, 68, 68, 0.3)',
+                                                color: '#ef4444',
+                                                fontSize: '0.9rem',
+                                                marginBottom: '1rem'
+                                            }}>
+                                                {error}
+                                            </div>
+                                        )}
+
+                                        <button
+                                            type="submit"
+                                            disabled={isSubmitting}
+                                            className="btn btn-primary"
+                                            style={{ width: '100%', padding: '1rem', fontSize: '1.1rem' }}
+                                        >
+                                            {isSubmitting ? 'Joining...' : 'Join Waitlist →'}
+                                        </button>
+                                    </form>
+                                </>
+                            ) : (
+                                <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+                                    <div style={{
+                                        width: '80px',
+                                        height: '80px',
+                                        margin: '0 auto 1.5rem',
+                                        borderRadius: '50%',
+                                        background: 'rgba(34, 197, 94, 0.2)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}>
+                                        <span style={{ fontSize: '2.5rem' }}>✓</span>
+                                    </div>
+                                    <h2 style={{ color: 'var(--text-primary)', marginBottom: '0.5rem' }}>You're on the list! 🎉</h2>
+                                    {position && (
+                                        <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+                                            You're #{position} in line
+                                        </p>
+                                    )}
+
+                                    <div style={{
+                                        padding: '1rem',
+                                        borderRadius: '12px',
+                                        background: 'var(--card-bg)',
+                                        border: '1px solid var(--border-color)',
+                                        marginBottom: '1.5rem'
+                                    }}>
+                                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Your Referral Code:</p>
+                                        <p style={{
+                                            fontSize: '1.5rem',
+                                            fontFamily: 'monospace',
+                                            fontWeight: 'bold',
+                                            color: 'var(--success)'
+                                        }}>{referralCode}</p>
+                                    </div>
+
+                                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                                        Share your link to move up the waitlist:
+                                    </p>
+                                    <button
+                                        onClick={copyReferralLink}
+                                        className="btn btn-secondary"
+                                        style={{ width: '100%' }}
+                                    >
+                                        {copied ? '✓ Copied!' : '📋 Copy Referral Link'}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Stats */}
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'center',
+                        gap: '3rem',
+                        marginTop: '2rem',
+                        textAlign: 'center'
+                    }}>
+                        <div>
+                            <p style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>10x</p>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Max Leverage</p>
+                        </div>
+                        <div style={{ width: '1px', background: 'var(--border-color)' }} />
+                        <div>
+                            <p style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>$0</p>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Trading Fees</p>
+                        </div>
+                        <div style={{ width: '1px', background: 'var(--border-color)' }} />
+                        <div>
+                            <p style={{ fontSize: '1.75rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>24/7</p>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Live Markets</p>
+                        </div>
+                    </div>
+                </div>
+            </main>
         </div>
-      </div>
     );
-  }
-
-  return (
-    <div className="min-h-screen">
-      <Header wsStatus={wsStatus} />
-
-      {/* Hero Section */}
-      <div className="hero">
-        <h1 className="hero-title">
-          Polymarket <span className="hero-title-italic">Leverage</span>
-        </h1>
-        <p className="hero-subtitle">
-          Advanced paper trading terminal with 10x leverage on real-time prediction markets.
-        </p>
-      </div>
-
-      {/* Tabs */}
-      <div className="tabs-container">
-        <button
-          className={`tab ${activeTab === 'discover' ? 'active' : ''}`}
-          onClick={() => setActiveTab('discover')}
-        >
-          <Compass size={18} />
-          Discover
-        </button>
-        <button
-          className={`tab ${activeTab === 'mybets' ? 'active' : ''}`}
-          onClick={() => setActiveTab('mybets')}
-        >
-          <Activity size={18} />
-          My Bets
-          {activePositions.length > 0 && (
-            <span className="tab-badge">{activePositions.length}</span>
-          )}
-        </button>
-        <button
-          className={`tab ${activeTab === 'wallet' ? 'active' : ''}`}
-          onClick={() => setActiveTab('wallet')}
-        >
-          <Wallet size={18} />
-          Wallet
-          {trades.length > 0 && (
-            <span className="tab-badge">{trades.length}</span>
-          )}
-        </button>
-      </div>
-
-      {/* Position Form Modal */}
-      {selectedMarket && (
-        <div className="modal-overlay" onClick={() => setSelectedMarket(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3 className="modal-title">Open Position</h3>
-            <p className="text-sm text-muted mb-4">{selectedMarket.question || selectedMarket.title}</p>
-            <div className="wallet-balance-mini">
-              <Wallet size={14} />
-              Available: <strong>${balance.toFixed(2)}</strong>
-            </div>
-            <PositionForm
-              market={selectedMarket}
-              onOpenPosition={handleOpenPosition}
-              onCancel={() => setSelectedMarket(null)}
-            />
-          </div>
-        </div>
-      )}
-
-      <main className="main-container">
-        {/* Discover Tab */}
-        {activeTab === 'discover' && (
-          <div>
-            {/* Search */}
-            <form onSubmit={handleSearch} className="search-container">
-              <Search size={18} className="search-icon" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search prediction markets..."
-                className="search-input"
-              />
-              <button type="submit" className="search-btn">
-                Search
-              </button>
-            </form>
-
-            {/* Section Header */}
-            <div className="section-header">
-              <h2 className="section-title">
-                {results.length > 0 ? (
-                  <>
-                    <Search size={20} />
-                    Search Results
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={20} />
-                    Popular Markets
-                  </>
-                )}
-              </h2>
-              {results.length > 0 ? (
-                <button
-                  onClick={() => {
-                    clearResults();
-                    setSearchQuery('');
-                    const params = new URLSearchParams(searchParams.toString());
-                    params.delete('q');
-                    router.replace(`?${params.toString()}`, { scroll: false });
-                  }}
-                  className="btn btn-secondary"
-                >
-                  Clear
-                </button>
-              ) : (
-                <span className="section-badge">Live</span>
-              )}
-            </div>
-
-            {/* Error State */}
-            {error && (
-              <div className="error-banner">
-                <p>Error: {error}</p>
-              </div>
-            )}
-
-            {/* Markets Grid */}
-            {(isLoading || isLoadingPopular) && marketsToShow.length === 0 ? (
-              <div className="loading-container">
-                <div className="loader"></div>
-                <p>Loading markets...</p>
-              </div>
-            ) : (
-              <div className="market-grid">
-                {marketsToShow.map((market) => (
-                  <div key={market.id} className="market-card">
-                    <div className="market-header">
-                      <h3 className="market-title">{market.question || market.title}</h3>
-                      <span className="market-volume">
-                        ${((market.volume || 0) / 1000000).toFixed(1)}M Vol
-                      </span>
-                    </div>
-                    <div className="market-outcomes">
-                      <button
-                        className="outcome-btn yes"
-                        onClick={() => handleSelectMarket(market)}
-                      >
-                        <span className="outcome-label">Yes</span>
-                        <span className="outcome-price">{market.yesPrice?.toFixed(0) || 50}¢</span>
-                      </button>
-                      <button
-                        className="outcome-btn no"
-                        onClick={() => handleSelectMarket(market)}
-                      >
-                        <span className="outcome-label">No</span>
-                        <span className="outcome-price">{market.noPrice?.toFixed(0) || 50}¢</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* My Bets Tab */}
-        {activeTab === 'mybets' && (
-          <div>
-            {/* Portfolio Overview */}
-            <div className="portfolio-section">
-              <div className="section-label">
-                <LayoutGrid size={14} />
-                Portfolio Overview
-              </div>
-              <div className="portfolio-grid">
-                <div className="stat-card">
-                  <div className="stat-icon collateral">
-                    <DollarSign size={18} />
-                  </div>
-                  <div className="stat-label">Collateral</div>
-                  <div className="stat-value">${stats.totalCollateral.toFixed(2)}</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon exposure">
-                    <TrendingUp size={18} />
-                  </div>
-                  <div className="stat-label">Exposure</div>
-                  <div className="stat-value">${stats.totalExposure.toFixed(2)}</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon pnl">
-                    <DollarSign size={18} />
-                  </div>
-                  <div className="stat-label">Unrealized P&L</div>
-                  <div className={`stat-value ${stats.unrealizedPnL >= 0 ? 'positive' : 'negative'}`}>
-                    {stats.unrealizedPnL >= 0 ? '+' : ''}${stats.unrealizedPnL.toFixed(2)}
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon positions">
-                    <Activity size={18} />
-                  </div>
-                  <div className="stat-label">Active</div>
-                  <div className="stat-value">{stats.activePositions}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Positions Section */}
-            <div className="section-header">
-              <h2 className="section-title">
-                <PieChart size={20} />
-                Your Positions
-              </h2>
-              <span className="section-badge">{stats.activePositions} Active</span>
-            </div>
-
-            <PositionList
-              positions={positions}
-              calculatePnL={calculatePnL}
-              onClose={handleClosePosition}
-              onUpdateOdds={updateOdds}
-            />
-          </div>
-        )}
-
-        {/* Wallet Tab */}
-        {activeTab === 'wallet' && walletLoaded && (
-          <WalletAnalysis
-            balance={balance}
-            startingBalance={startingBalance}
-            trades={trades}
-            stats={walletStats}
-            onReset={resetWallet}
-          />
-        )}
-      </main>
-    </div>
-  );
 }
