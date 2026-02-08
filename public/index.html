@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polymarket Leverage Simulator</title>
+    <meta name="description" content="Paper trade with leverage on Polymarket prediction markets. Simulate leveraged positions with real-time odds.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                        </svg>
+                    </div>
+                    <div class="logo-text">
+                        <h1>Polymarket Leverage</h1>
+                        <span class="subtitle">Paper Trading Simulator</span>
+                    </div>
+                </div>
+                <div class="connection-status">
+                    <div class="status-indicator" id="wsStatus">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Connecting...</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Left Panel - Markets & Position Entry -->
+            <section class="left-panel">
+                <!-- Market Search -->
+                <div class="card market-search-card">
+                    <div class="card-header">
+                        <h2>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/>
+                                <path d="m21 21-4.35-4.35"/>
+                            </svg>
+                            Search Markets
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="search-container">
+                            <input type="text" id="marketSearch" placeholder="Search prediction markets..." class="search-input">
+                            <button id="searchBtn" class="search-btn">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="11" cy="11" r="8"/>
+                                    <path d="m21 21-4.35-4.35"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="searchResults" class="search-results"></div>
+                    </div>
+                </div>
+
+                <!-- Position Entry -->
+                <div class="card position-entry-card">
+                    <div class="card-header">
+                        <h2>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v20M2 12h20"/>
+                            </svg>
+                            Open Position
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="selected-market" id="selectedMarket">
+                            <div class="empty-state">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                </svg>
+                                <p>Search and select a market above</p>
+                            </div>
+                        </div>
+
+                        <div class="position-form" id="positionForm" style="display: none;">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Your Prediction</label>
+                                    <div class="toggle-group">
+                                        <button type="button" class="toggle-btn active" data-value="yes" id="predYes">YES</button>
+                                        <button type="button" class="toggle-btn" data-value="no" id="predNo">NO</button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Current Odds</label>
+                                    <div class="odds-display" id="currentOddsDisplay">
+                                        <span class="odds-yes">YES: --</span>
+                                        <span class="odds-no">NO: --</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Position Size ($)</label>
+                                    <input type="number" id="positionSize" placeholder="100" value="100" min="1" class="form-input">
+                                </div>
+                                <div class="form-group">
+                                    <label>Leverage</label>
+                                    <div class="leverage-selector">
+                                        <button type="button" class="lev-btn" data-lev="1">1x</button>
+                                        <button type="button" class="lev-btn" data-lev="2">2x</button>
+                                        <button type="button" class="lev-btn active" data-lev="5">5x</button>
+                                        <button type="button" class="lev-btn" data-lev="10">10x</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="position-summary">
+                                <div class="summary-row">
+                                    <span class="label">Collateral Required</span>
+                                    <span class="value" id="collateralRequired">$20.00</span>
+                                </div>
+                                <div class="summary-row">
+                                    <span class="label">Effective Position</span>
+                                    <span class="value" id="effectivePosition">$100.00</span>
+                                </div>
+                                <div class="summary-row warning">
+                                    <span class="label">Liquidation Point</span>
+                                    <span class="value" id="liquidationPoint">--</span>
+                                </div>
+                            </div>
+
+                            <button id="openPositionBtn" class="primary-btn">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                                </svg>
+                                Open Leveraged Position
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel - Portfolio & Positions -->
+            <section class="right-panel">
+                <!-- Portfolio Summary -->
+                <div class="portfolio-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon collateral">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                                <path d="M7 11V7a5 5 0 0110 0v4"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Total Collateral</span>
+                            <span class="stat-value" id="totalCollateral">$0.00</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon exposure">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Total Exposure</span>
+                            <span class="stat-value" id="totalExposure">$0.00</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon pnl">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 20V10M18 20V4M6 20v-4"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Unrealized P&L</span>
+                            <span class="stat-value" id="unrealizedPnL">$0.00</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon positions">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+                                <rect x="9" y="3" width="6" height="4" rx="1"/>
+                            </svg>
+                        </div>
+                        <div class="stat-content">
+                            <span class="stat-label">Active Positions</span>
+                            <span class="stat-value" id="activePositionsCount">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Positions -->
+                <div class="card positions-card">
+                    <div class="card-header">
+                        <h2>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                <path d="M3 9h18M9 21V9"/>
+                            </svg>
+                            Active Positions
+                        </h2>
+                        <span class="positions-badge" id="positionsBadge">0</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="positionsList" class="positions-list">
+                            <div class="empty-positions">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <path d="M8 12h8M12 8v8"/>
+                                </svg>
+                                <p>No active positions</p>
+                                <span>Open a position to start tracking</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- P&L Chart -->
+                <div class="card chart-card">
+                    <div class="card-header">
+                        <h2>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M3 3v18h18"/>
+                                <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/>
+                            </svg>
+                            Portfolio Performance
+                        </h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="pnlChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Toast Container -->
+        <div id="toastContainer" class="toast-container"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
